@@ -2,11 +2,11 @@
 #include <SPI.h>
 #include <Servo.h>
 
-#define LED_ESQUERDA 5    // LED vermelho da via com RFID e botão
-#define LED_DIREITA 2     // LED vermelho da via sem sensores
-#define BOTAO_PEDESTRE 4  // Botão de pedestre
+#define LED_ESQUERDA 5       // LED vermelho da via com RFID e botão
+#define LED_DIREITA 2        // LED vermelho da via sem sensores
+#define BOTAO_PEDESTRE 4     // Botão de pedestre
 
-#define PINO_RST 9        // Pino do módulo RFID
+#define PINO_RST 9
 #define PINO_SDA 10
 
 #define ANGULO_ESQUERDA 0
@@ -15,12 +15,14 @@
 MFRC522 rfid(PINO_SDA, PINO_RST);
 Servo servo;
 
-const String rfidTagUID = "d3 1e a2 a5";
+const String rfidTagUID = "d3 1e a2 a5"; // UID da tag do veículo prioritário
 
 unsigned long last_change_time = 0;
 int tempo_espera = 0;
 bool via_esquerda_fechada = true; // Começa com a esquerda fechada (LED aceso)
 int num_veiculos = 0;
+
+int ultimo_segundo = -1; // Para evitar prints repetidos
 
 void setup() {
   Serial.begin(9600);
@@ -29,17 +31,18 @@ void setup() {
 
   pinMode(LED_ESQUERDA, OUTPUT);
   pinMode(LED_DIREITA, OUTPUT);
-  pinMode(BOTAO_PEDESTRE, INPUT);
-  
-  servo.attach(6); // Pino PWM para o servo motor
+  pinMode(BOTAO_PEDESTRE, INPUT); // com resistor pull-down externo
+
+  servo.attach(6); // Servo motor no pino PWM 6
 
   // Estado inicial: esquerda fechada, direita aberta
   digitalWrite(LED_ESQUERDA, HIGH);  // Vermelho ligado = fechado
-  digitalWrite(LED_DIREITA, LOW);    // Verde (apagado) = aberto
-  servo.write(ANGULO_ESQUERDA);      // Câmera aponta para via fechada
-  last_change_time = millis();
+  digitalWrite(LED_DIREITA, LOW);    // Apagado = aberto
+  servo.write(ANGULO_ESQUERDA);      // Câmera olha para via fechada
 
-  tempo_espera = calcularTempoEspera(); // Define tempo inicial
+  last_change_time = millis();
+  tempo_espera = calcularTempoEspera(); // Tempo inicial baseado em veículos aleatórios
+
   Serial.print("Semáforo iniciado. Tempo de espera via esquerda: ");
   Serial.print(tempo_espera);
   Serial.println("s");
@@ -53,8 +56,7 @@ void loop() {
   int tempo_passado = (agora - last_change_time) / 1000;
   int tempo_restante = tempo_espera - tempo_passado;
 
-  // Exibe contagem regressiva a cada segundo
-  static int ultimo_segundo = -1;
+  // Contagem regressiva (somente se o valor mudou)
   if (tempo_restante != ultimo_segundo && tempo_restante >= 0) {
     ultimo_segundo = tempo_restante;
     if (via_esquerda_fechada)
@@ -65,7 +67,7 @@ void loop() {
     Serial.println("s");
   }
 
-  // Checa RFID se a via esquerda estiver fechada
+  // DETECÇÃO DE VEÍCULO DE SERVIÇO (RFID)
   if (via_esquerda_fechada && rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     String conteudo = "";
     for (byte i = 0; i < rfid.uid.size; i++) {
@@ -78,27 +80,36 @@ void loop() {
       if (tempo_restante > 15) {
         tempo_espera = 15;
         last_change_time = millis();
+        ultimo_segundo = -1;
         Serial.println("Veículo de emergência detectado. Tempo reduzido para 15s.");
+        return; // Evita troca imediata no mesmo loop
+      } else {
+        Serial.println("Veículo de emergência detectado, mas já próximo da troca.");
       }
     }
     rfid.PICC_HaltA();
   }
 
-  // Checa botão de pedestre se a via direita estiver fechada
+  // DETECÇÃO DE PEDRESTRE
   if (!via_esquerda_fechada && digitalRead(BOTAO_PEDESTRE) == HIGH) {
-    if (tempo_restante > 20) {
-      tempo_espera = 20;
+    if (tempo_restante > 100) {
+      tempo_espera = 100;
       last_change_time = millis();
-      Serial.println("Botão de pedestre pressionado. Tempo reduzido para 20s.");
+      ultimo_segundo = -1;
+      Serial.println("Botão de pedestre pressionado. Tempo reduzido para 100s.");
+      return; // Evita troca imediata no mesmo loop
+    } else {
+      Serial.println("Botão de pedestre pressionado, mas já próximo da troca.");
     }
   }
 
-  // Verifica se é hora de alternar os semáforos
+  // VERIFICA SE O TEMPO ESGOTOU PARA TROCAR OS SEMÁFOROS
   if (tempo_passado >= tempo_espera) {
-    via_esquerda_fechada = !via_esquerda_fechada;
+    via_esquerda_fechada = !via_esquerda_fechada; // Alterna o estado
     alternarSemaforos();
     last_change_time = millis();
     tempo_espera = calcularTempoEspera();
+    ultimo_segundo = -1;
 
     if (via_esquerda_fechada)
       Serial.print("Nova espera via esquerda: ");
@@ -109,31 +120,27 @@ void loop() {
   }
 }
 
-// Alterna LEDs e move a câmera para a via que fechou
+// Alterna LEDs e movimenta a câmera
 void alternarSemaforos() {
   if (via_esquerda_fechada) {
-    digitalWrite(LED_ESQUERDA, HIGH);  // Fechado
-    digitalWrite(LED_DIREITA, LOW);    // Aberto
+    digitalWrite(LED_ESQUERDA, HIGH);  // Vermelho = fechado
+    digitalWrite(LED_DIREITA, LOW);    // Verde = aberto
     servo.write(ANGULO_ESQUERDA);
   } else {
-    digitalWrite(LED_ESQUERDA, LOW);   // Aberto
-    digitalWrite(LED_DIREITA, HIGH);   // Fechado
+    digitalWrite(LED_ESQUERDA, LOW);   // Verde = aberto
+    digitalWrite(LED_DIREITA, HIGH);   // Vermelho = fechado
     servo.write(ANGULO_DIREITA);
   }
 
-  // Atualiza número de veículos (aleatório de 0 a 10)
+  // Atualiza número de veículos com valor aleatório de 0 a 10
   num_veiculos = random(0, 11);
   Serial.print("Número de veículos na via fechada: ");
   Serial.println(num_veiculos);
 }
 
-// Calcula o tempo com base no número de veículos
+// Calcula o tempo com base em número de veículos, respeitando o limite de 200s
 int calcularTempoEspera() {
-  int tempo = 200; // tempo máximo
-
-  // Cada veículo reduz 10s
-  tempo -= num_veiculos * 10;
+  int tempo = 200 - (num_veiculos * 10);
   if (tempo < 0) tempo = 0;
-
   return tempo;
 }
