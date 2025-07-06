@@ -1,4 +1,4 @@
-# Projeto de Semáforo Inteligente com Visão Computacional e Arduino
+# Codificação do Projeto de Semáforo Inteligente com Visão Computacional e Arduino
 
 ## Alunos:
 
@@ -30,7 +30,7 @@ O objetivo é simular um ambiente de tráfego urbano onde o tempo de parada e li
 ```
 
 - **main.py**: utiliza OpenCV, o modelo YOLOv8 da Ultralytics e comunicação serial para detectar veículos e enviar sua contagem ao Arduino.
-- **main.ino**: código que recebe a contagem via porta serial e comanda os LEDs (vermelho e verde), representando o controle de tráfego.
+- **main.ino**: código que recebe a contagem via porta serial e representa o controle de tráfego.
 - **README.md**: este arquivo explicativo com instruções de uso e detalhes do projeto.
 
 ## Instruções de Execução
@@ -48,7 +48,7 @@ O objetivo é simular um ambiente de tráfego urbano onde o tempo de parada e li
 #### Arduino
 
 - Placa Arduino Uno (ou similar)
-- LED vermelho e LED verde conectados aos pinos digitais
+- Projeto montado e estrurado
 - Cabo USB e porta COM identificada (ajustar no `main.py`)
 - Biblioteca adicional:
   - Instale a biblioteca `MRFC522.zip` manualmente:
@@ -75,13 +75,15 @@ O objetivo é simular um ambiente de tráfego urbano onde o tempo de parada e li
 
 ### Comunicação:
 
-- A contagem é enviada via serial para a porta `COM5` (pode ser ajustada conforme seu dispositivo).
-- O Arduino lê essa informação e determina se o tempo de parada deve ser estendido.
+- A contagem é enviada via serial para a porta `COM'X'` (pode ser ajustada conforme seu dispositivo).
+- O Arduino lê essa informação e determina se o tempo deve ser reduzido pela quantidade de carros.
 
 ### Lógica do Arduino:
 
-- Com menos veículos, o tempo de vermelho é menor.
-- Com muitos veículos detectados, o tempo de parada aumenta.
+- Tempo máximo de espera: 200 segundos;
+- Redução de 10 segundos por veículo aguardando;
+- Veículos de emergência: máximo de 15 segundos de espera;
+- Pedestre: se o botão for pressionado enquanto o sinal está aberto, a outra via terá no máximo 100 segundos de espera.
 
 ## Considerações Finais
 
