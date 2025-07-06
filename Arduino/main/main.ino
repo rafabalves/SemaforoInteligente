@@ -9,8 +9,8 @@
 #define PINO_RST 9
 #define PINO_SDA 10
 
-#define ANGULO_ESQUERDA 0
-#define ANGULO_DIREITA 90
+#define ANGULO_ESQUERDA 85
+#define ANGULO_DIREITA 185
 
 MFRC522 rfid(PINO_SDA, PINO_RST);
 Servo servo;
@@ -41,7 +41,7 @@ void setup() {
   servo.write(ANGULO_ESQUERDA);      // Câmera olha para via fechada
 
   last_change_time = millis();
-  tempo_espera = calcularTempoEspera(); // Tempo inicial baseado em veículos aleatórios
+  tempo_espera = calcularTempoEspera(); // Tempo inicial baseado em veículos
 
   Serial.print("Semáforo iniciado. Tempo de espera via esquerda: ");
   Serial.print(tempo_espera);
@@ -49,14 +49,21 @@ void setup() {
 }
 
 void loop() {
-  //Variavel quant carros
-  /*if (Serial.available() > 0) // Verifica se há dados recebidos pela porta
-    vehicles_number = Serial.parseInt();*/
+  // === LEITURA CONTÍNUA DA SERIAL (contagem de veículos da câmera) ===
+  while (Serial.available() > 0) {
+    int recebido = Serial.parseInt();
+    if (recebido >= 0 && recebido <= 10) {
+      num_veiculos = recebido;
+      //Serial.print("Número de veículos atualizado pela câmera: ");
+      //Serial.println(num_veiculos);
+    }
+  }
+
+  // === CONTAGEM REGRESSIVA ===
   unsigned long agora = millis();
   int tempo_passado = (agora - last_change_time) / 1000;
   int tempo_restante = tempo_espera - tempo_passado;
 
-  // Contagem regressiva (somente se o valor mudou)
   if (tempo_restante != ultimo_segundo && tempo_restante >= 0) {
     ultimo_segundo = tempo_restante;
     if (via_esquerda_fechada)
@@ -67,7 +74,7 @@ void loop() {
     Serial.println("s");
   }
 
-  // DETECÇÃO DE VEÍCULO DE SERVIÇO (RFID)
+  // === DETECÇÃO DE VEÍCULO DE EMERGÊNCIA ===
   if (via_esquerda_fechada && rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
     String conteudo = "";
     for (byte i = 0; i < rfid.uid.size; i++) {
@@ -90,25 +97,25 @@ void loop() {
     rfid.PICC_HaltA();
   }
 
-  // DETECÇÃO DE PEDRESTRE
+  // === DETECÇÃO DE PEDRESTRE ===
   if (!via_esquerda_fechada && digitalRead(BOTAO_PEDESTRE) == HIGH) {
-    if (tempo_restante > 100) {
-      tempo_espera = 100;
+    if (tempo_restante > 10) {
+      tempo_espera = 10;
       last_change_time = millis();
       ultimo_segundo = -1;
       Serial.println("Botão de pedestre pressionado. Tempo reduzido para 100s.");
-      return; // Evita troca imediata no mesmo loop
+      return;
     } else {
       Serial.println("Botão de pedestre pressionado, mas já próximo da troca.");
     }
   }
 
-  // VERIFICA SE O TEMPO ESGOTOU PARA TROCAR OS SEMÁFOROS
+  // === VERIFICA SE DEVE TROCAR OS SEMÁFOROS ===
   if (tempo_passado >= tempo_espera) {
-    via_esquerda_fechada = !via_esquerda_fechada; // Alterna o estado
+    via_esquerda_fechada = !via_esquerda_fechada;
     alternarSemaforos();
     last_change_time = millis();
-    tempo_espera = calcularTempoEspera();
+    tempo_espera = calcularTempoEspera(); // Usa o num_veiculos já atualizado
     ultimo_segundo = -1;
 
     if (via_esquerda_fechada)
@@ -120,25 +127,41 @@ void loop() {
   }
 }
 
-// Alterna LEDs e movimenta a câmera
+// === TROCA OS LEDS E MOVE A CÂMERA PARA VIA FECHADA ===
 void alternarSemaforos() {
   if (via_esquerda_fechada) {
-    digitalWrite(LED_ESQUERDA, HIGH);  // Vermelho = fechado
-    digitalWrite(LED_DIREITA, LOW);    // Verde = aberto
+    digitalWrite(LED_ESQUERDA, HIGH);  // Fecha a esquerda
+    digitalWrite(LED_DIREITA, LOW);    // Abre a direita
+    Serial.print("Servo em:");
+    Serial.println(ANGULO_ESQUERDA);
     servo.write(ANGULO_ESQUERDA);
   } else {
-    digitalWrite(LED_ESQUERDA, LOW);   // Verde = aberto
-    digitalWrite(LED_DIREITA, HIGH);   // Vermelho = fechado
+    digitalWrite(LED_ESQUERDA, LOW);   // Abre a esquerda
+    digitalWrite(LED_DIREITA, HIGH);   // Fecha a direita
+    Serial.print("Servo em:");
+    Serial.println(ANGULO_DIREITA);
     servo.write(ANGULO_DIREITA);
   }
 
-  // Atualiza número de veículos com valor aleatório de 0 a 10
-  num_veiculos = random(0, 11);
+  // Aguarda nova leitura válida da câmera via serial
+  Serial.println("Aguardando leitura da câmera...");
+
+  unsigned long inicio = millis();
+
+  while ((millis() - inicio) < 2000) {  // Espera até 2 segundos por um valor válido
+    if (Serial.available() > 0) {
+      int valor = Serial.parseInt();
+        num_veiculos = valor;
+        Serial.print("Número de veículos na câmera (pós-servo): ");
+        Serial.println(num_veiculos);
+    }
+  }
+
   Serial.print("Número de veículos na via fechada: ");
   Serial.println(num_veiculos);
 }
 
-// Calcula o tempo com base em número de veículos, respeitando o limite de 200s
+// === CÁLCULO DO TEMPO COM BASE EM VEÍCULOS ===
 int calcularTempoEspera() {
   int tempo = 200 - (num_veiculos * 10);
   if (tempo < 0) tempo = 0;
